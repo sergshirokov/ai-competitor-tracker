@@ -27,6 +27,16 @@ class CompetitorAnalysis(BaseModel):
     unique_offers: List[str] = Field(default_factory=list, description="Уникальные предложения")
     recommendations: List[str] = Field(default_factory=list, description="Рекомендации")
     summary: str = Field("", description="Общее резюме")
+    ai_compliance_score: Optional[int] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="Готовность контента к использованию для обучения LLM (0–10); только для анализа по скриншоту сайта",
+    )
+    ai_training_recommendations: List[str] = Field(
+        default_factory=list,
+        description="Краткие рекомендации по оптимизации контента под обучение LLM",
+    )
 
 
 class ImageAnalysis(BaseModel):

@@ -147,11 +147,34 @@ const ui = {
     },
     
     renderTextAnalysis(analysis) {
+        const aiScore = analysis.ai_compliance_score;
+        const hasAiBlock = aiScore != null && aiScore !== undefined;
+        const aiTrain = analysis.ai_training_recommendations || [];
+        const aiScorePercent = hasAiBlock ? (aiScore / 10) * 100 : 0;
         return `
             ${this.renderResultBlock('Сильные стороны', analysis.strengths, 'strengths')}
             ${this.renderResultBlock('Слабые стороны', analysis.weaknesses, 'weaknesses')}
             ${this.renderResultBlock('Уникальные предложения', analysis.unique_offers, 'unique')}
             ${this.renderResultBlock('Рекомендации', analysis.recommendations, 'recommendations')}
+            ${hasAiBlock ? `
+                <div class="result-block">
+                    <h3>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
+                        Готовность контента к обучению LLM
+                    </h3>
+                    <div class="score-display">
+                        <span class="score-value">${aiScore}/10</span>
+                        <div class="score-bar">
+                            <div class="score-fill" style="width: ${aiScorePercent}%"></div>
+                        </div>
+                    </div>
+                </div>
+            ` : ''}
+            ${aiTrain.length ? this.renderResultBlock('Оптимизация под обучение LLM', aiTrain, 'ai-train') : ''}
             ${analysis.summary ? `
                 <div class="result-block result-summary">
                     <h3>

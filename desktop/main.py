@@ -515,6 +515,24 @@ class MainWindow(QMainWindow):
                 block = ResultBlock("💡 Рекомендации", analysis["recommendations"])
                 self.results_layout.addWidget(block)
             
+            # Готовность контента к обучению LLM (анализ по скриншоту сайта)
+            if analysis.get("ai_compliance_score") is not None:
+                score = analysis["ai_compliance_score"]
+                score_frame = QFrame()
+                score_frame.setObjectName("resultBlock")
+                score_layout = QVBoxLayout(score_frame)
+                score_title = QLabel("🧠 Готовность контента к обучению LLM")
+                score_title.setObjectName("sectionTitle")
+                score_value = QLabel(f"{score}/10")
+                score_value.setStyleSheet("font-size: 28px; font-weight: bold; color: #22d3ee;")
+                score_layout.addWidget(score_title)
+                score_layout.addWidget(score_value)
+                self.results_layout.addWidget(score_frame)
+            
+            if analysis.get("ai_training_recommendations"):
+                block = ResultBlock("📚 Оптимизация под обучение LLM", analysis["ai_training_recommendations"])
+                self.results_layout.addWidget(block)
+            
             # Резюме
             if analysis.get("summary"):
                 summary_frame = QFrame()

@@ -1,8 +1,8 @@
 """
-Сервис для работы с ProxyAPI (OpenAI-совместимый API)
-https://proxyapi.ru/docs/openai-text-generation
+Сервис для работы с OpenAI API или ProxyAPI (OpenAI-совместимый).
+ProxyAPI: https://proxyapi.ru/docs/openai-text-generation
+Responses API (vision): https://proxyapi.ru/docs/openai-vision
 """
-import base64
 import json
 import re
 import time
@@ -19,21 +19,29 @@ logger = logging.getLogger("competitor_monitor.openai")
 
 
 class OpenAIService:
-    """Сервис для анализа через ProxyAPI"""
+    """Сервис анализа через нативный OpenAI API или ProxyAPI."""
     
     def __init__(self):
         logger.info("=" * 50)
         logger.info("Инициализация OpenAI сервиса")
-        logger.info(f"  Base URL: {settings.proxy_api_base_url}")
         logger.info(f"  Модель текста: {settings.openai_model}")
         logger.info(f"  Модель vision: {settings.openai_vision_model}")
-        logger.info(f"  API ключ: {'*' * 10}...{settings.proxy_api_key[-4:] if settings.proxy_api_key else 'НЕ ЗАДАН'}")
-        
-        # ProxyAPI - OpenAI-совместимый API для России
-        self.client = OpenAI(
-            api_key=settings.proxy_api_key,
-            base_url=settings.proxy_api_base_url
-        )
+
+        openai_key = (settings.openai_key or "").strip()
+        if openai_key:
+            logger.info("  Режим: OpenAI API (api.openai.com)")
+            logger.info(f"  API ключ: {'*' * 10}...{openai_key[-4:]}")
+            self.client = OpenAI(api_key=openai_key)
+        else:
+            logger.info("  Режим: ProxyAPI")
+            logger.info(f"  Base URL: {settings.proxy_api_base_url}")
+            logger.info(
+                f"  API ключ: {'*' * 10}...{settings.proxy_api_key[-4:] if settings.proxy_api_key else 'НЕ ЗАДАН'}"
+            )
+            self.client = OpenAI(
+                api_key=settings.proxy_api_key,
+                base_url=settings.proxy_api_base_url,
+            )
         self.model = settings.openai_model
         self.vision_model = settings.openai_vision_model
         
@@ -65,6 +73,22 @@ class OpenAIService:
             logger.debug(f"Проблемный контент: {content[:200]}...")
             return {}
     
+    @staticmethod
+    def _responses_output_text(response) -> str:
+        """Текст ответа из Responses API (SDK output_text или разбор output)."""
+        text = getattr(response, "output_text", None)
+        if text:
+            return text
+        parts: list[str] = []
+        for item in getattr(response, "output", None) or []:
+            if getattr(item, "type", None) == "message":
+                for c in getattr(item, "content", None) or []:
+                    if getattr(c, "type", None) == "output_text":
+                        parts.append(getattr(c, "text", "") or "")
+            elif getattr(item, "type", None) == "output_text":
+                parts.append(getattr(item, "text", "") or "")
+        return "".join(parts)
+    
     async def analyze_text(self, text: str) -> CompetitorAnalysis:
         """Анализ текста конкурента"""
         logger.info("=" * 50)
@@ -93,22 +117,22 @@ class OpenAIService:
         logger.info("  Отправка запроса к API...")
         
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Проанализируй текст конкурента:\n\n{text}"}
-                ],
+                instructions=system_prompt,
+                input=f"Проанализируй текст конкурента:\n\n{text}",
                 temperature=0.7,
-                max_tokens=2000
+                max_output_tokens=2000,
             )
             
             elapsed = time.time() - start_time
             logger.info(f"  ✓ Ответ получен за {elapsed:.2f} сек")
             
-            content = response.choices[0].message.content
+            content = self._responses_output_text(response)
             logger.info(f"  Длина ответа: {len(content)} символов")
-            logger.debug(f"  Использовано токенов: {response.usage.total_tokens if response.usage else 'N/A'}")
+            usage = getattr(response, "usage", None)
+            total = getattr(usage, "total_tokens", None) if usage else None
+            logger.debug(f"  Использовано токенов: {total if total is not None else 'N/A'}")
             
             data = self._parse_json_response(content)
             
@@ -160,34 +184,34 @@ class OpenAIService:
         logger.info("  Отправка запроса к Vision API...")
         
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.vision_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
+                instructions=system_prompt,
+                input=[
                     {
+                        "type": "message",
                         "role": "user",
                         "content": [
                             {
-                                "type": "text",
-                                "text": "Проанализируй это изображение конкурента с точки зрения маркетинга и дизайна:"
+                                "type": "input_text",
+                                "text": "Проанализируй это изображение конкурента с точки зрения маркетинга и дизайна:",
                             },
                             {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime_type};base64,{image_base64}"
-                                }
-                            }
-                        ]
+                                "type": "input_image",
+                                "image_url": f"data:{mime_type};base64,{image_base64}",
+                                "detail": "auto",
+                            },
+                        ],
                     }
                 ],
                 temperature=0.7,
-                max_tokens=2000
+                max_output_tokens=2000,
             )
             
             elapsed = time.time() - start_time
             logger.info(f"  ✓ Ответ получен за {elapsed:.2f} сек")
             
-            content = response.choices[0].message.content
+            content = self._responses_output_text(response)
             logger.info(f"  Длина ответа: {len(content)} символов")
             
             data = self._parse_json_response(content)
@@ -279,8 +303,14 @@ class OpenAIService:
     "weaknesses": ["слабая сторона 1", "слабая сторона 2", ...],
     "unique_offers": ["уникальное предложение/фича 1", "уникальное предложение/фича 2", ...],
     "recommendations": ["рекомендация 1", "рекомендация 2", ...],
-    "summary": "Комплексное резюме анализа сайта конкурента"
+    "summary": "Комплексное резюме анализа сайта конкурента",
+    "ai_compliance_score": 7,
+    "ai_training_recommendations": ["краткая рекомендация по структуре/разметке текста", "краткая рекомендация по ясности и полноте контента для датасета", ...]
 }
+
+Поле ai_compliance_score — целое число от 0 до 10: насколько видимый на скриншоте контент пригоден для использования в обучении LLM (структура, ясность, отсутствие мусора, читаемость, плотность смысла, отсутствие дублирования баннеров вместо текста и т.п.).
+
+Поле ai_training_recommendations — 3-6 коротких пунктов: что улучшить на сайте, чтобы текст и подача лучше подходили для последующего обучения или дообучения языковых моделей (не общий маркетинг, а именно пригодность контента как учебного материала).
 
 При анализе обращай внимание на:
 - Дизайн и визуальный стиль (цвета, шрифты, композиция)
@@ -291,7 +321,7 @@ class OpenAIService:
 - Технологичность и современность дизайна
 
 Важно:
-- Каждый массив должен содержать 4-6 конкретных пунктов
+- Каждый массив (кроме ai_training_recommendations по смыслу — там 3-6 пунктов) должен содержать 4-6 конкретных пунктов для strengths/weaknesses/unique_offers/recommendations
 - Пиши на русском языке
 - Будь конкретен и практичен
 - Давай actionable рекомендации"""
@@ -300,47 +330,63 @@ class OpenAIService:
         logger.info("  Отправка скриншота в Vision API...")
         
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.vision_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
+                instructions=system_prompt,
+                input=[
                     {
+                        "type": "message",
                         "role": "user",
                         "content": [
                             {
-                                "type": "text",
-                                "text": f"Проведи комплексный конкурентный анализ этого сайта:\n\n{context}"
+                                "type": "input_text",
+                                "text": f"Проведи комплексный конкурентный анализ этого сайта:\n\n{context}",
                             },
                             {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{screenshot_base64}"
-                                }
-                            }
-                        ]
+                                "type": "input_image",
+                                "image_url": f"data:image/jpeg;base64,{screenshot_base64}",
+                                "detail": "auto",
+                            },
+                        ],
                     }
                 ],
                 temperature=0.7,
-                max_tokens=3000
+                max_output_tokens=3000,
             )
             
             elapsed = time.time() - start_time
             logger.info(f"  ✓ Ответ получен за {elapsed:.2f} сек")
             
-            content = response.choices[0].message.content
+            content = self._responses_output_text(response)
             logger.info(f"  Длина ответа: {len(content)} символов")
             
             data = self._parse_json_response(content)
+            
+            raw_score = data.get("ai_compliance_score")
+            ai_score: Optional[int] = None
+            if raw_score is not None:
+                try:
+                    ai_score = max(0, min(10, int(raw_score)))
+                except (TypeError, ValueError):
+                    ai_score = None
+            raw_train = data.get("ai_training_recommendations") or []
+            if isinstance(raw_train, list):
+                ai_train = [str(x).strip() for x in raw_train if str(x).strip()]
+            else:
+                ai_train = []
             
             result = CompetitorAnalysis(
                 strengths=data.get("strengths", []),
                 weaknesses=data.get("weaknesses", []),
                 unique_offers=data.get("unique_offers", []),
                 recommendations=data.get("recommendations", []),
-                summary=data.get("summary", "")
+                summary=data.get("summary", ""),
+                ai_compliance_score=ai_score,
+                ai_training_recommendations=ai_train,
             )
             
             logger.info(f"  Результат:")
+            logger.info(f"    - AI compliance (LLM training): {ai_score if ai_score is not None else 'N/A'}/10")
             logger.info(f"    - Сильных сторон: {len(result.strengths)}")
             logger.info(f"    - Слабых сторон: {len(result.weaknesses)}")
             logger.info(f"    - УТП: {len(result.unique_offers)}")
