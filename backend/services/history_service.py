@@ -6,10 +6,10 @@ import uuid
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from backend.config import settings
-from backend.models.schemas import HistoryItem
+from backend.models.schemas import HistoryItem, ParseHistorySnapshot
 
 # Логгер для сервиса
 logger = logging.getLogger("competitor_monitor.history")
@@ -72,13 +72,16 @@ class HistoryService:
         self,
         request_type: str,
         request_summary: str,
-        response_summary: str
+        response_summary: str,
+        parse_analysis: Optional[ParseHistorySnapshot] = None,
     ) -> HistoryItem:
-        """Добавить запись в историю"""
+        """Добавить запись в историю. Для parse — снимок ParseHistorySnapshot."""
         logger.info(f"📝 Добавление записи в историю")
         logger.info(f"  Тип: {request_type}")
         logger.info(f"  Запрос: {request_summary[:50]}...")
         logger.info(f"  Ответ: {response_summary[:50]}...")
+        if parse_analysis is not None:
+            logger.info("  parse_analysis: сохранён ParseHistorySnapshot")
         
         history = self._load_history()
         
@@ -89,6 +92,8 @@ class HistoryService:
             "request_summary": request_summary[:200],
             "response_summary": response_summary[:500]
         }
+        if parse_analysis is not None:
+            item["parse_analysis"] = parse_analysis.model_dump()
         
         # Добавляем в начало
         history.insert(0, item)

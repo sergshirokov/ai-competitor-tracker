@@ -1,4 +1,4 @@
-# 📚 Документация API - Мониторинг конкурентов
+# Документация API — Мониторинг конкурентов
 
 ## Содержание
 
@@ -7,39 +7,34 @@
 3. [Примеры запросов](#примеры-запросов)
 4. [Мультимодальные функции](#мультимодальные-функции)
 5. [Модели данных](#модели-данных)
+6. [Коды ошибок](#коды-ошибок)
+7. [Конфигурация](#конфигурация)
+8. [Безопасность](#безопасность)
 
 ---
 
 ## Структура проекта
 
 ```
-competitor-monitor/
-│
-├── backend/                     # Backend модуль
-│   ├── __init__.py
-│   ├── main.py                  # Главный файл FastAPI
-│   ├── config.py                # Конфигурация приложения
-│   │
-│   ├── models/                  # Pydantic модели
-│   │   ├── __init__.py
-│   │   └── schemas.py           # Схемы запросов/ответов
-│   │
-│   └── services/                # Бизнес-логика
-│       ├── __init__.py
-│       ├── openai_service.py    # Интеграция с OpenAI
-│       ├── parser_service.py    # Парсинг веб-страниц
-│       └── history_service.py   # Управление историей
-│
-├── frontend/                    # Frontend модуль
-│   ├── index.html               # Главная HTML страница
-│   ├── styles.css               # CSS стили
-│   └── app.js                   # JavaScript приложение
-│
-├── requirements.txt             # Python зависимости
-├── env.example.txt              # Пример переменных окружения
-├── history.json                 # Файл истории запросов
-├── README.md                    # Описание проекта
-└── docs.md                      # Эта документация
+ai-competitor-tracker/
+├── backend/
+│   ├── main.py                  # FastAPI: маршруты, статика frontend
+│   ├── config.py                # OpenAI/ProxyAPI, парсер, история
+│   ├── models/
+│   │   └── schemas.py           # Pydantic: запросы/ответы, ParseHistorySnapshot
+│   └── services/
+│       ├── openai_service.py    # OpenAI: текст, изображение, скриншот сайта
+│       ├── parser_service.py    # Playwright (Chromium) + stealth, скриншот viewport
+│       └── history_service.py   # history.json
+├── frontend/                    # Веб-UI (vanilla JS)
+├── desktop/                     # Опциональный PyQt-клиент
+├── parsedemo/                   # Batch-вызовы POST /parse_demo по списку URL
+├── run.py                       # Запуск uvicorn (рекомендуется)
+├── requirements.txt
+├── env.example.txt
+├── history.json
+├── README.md
+└── docs.md
 ```
 
 ---
@@ -52,6 +47,8 @@ competitor-monitor/
 http://localhost:8000
 ```
 
+Порт задаётся переменной `API_PORT` (по умолчанию `8000`).
+
 ### Эндпоинты
 
 | Метод | Путь | Описание |
@@ -59,12 +56,12 @@ http://localhost:8000
 | GET | `/` | Главная страница (веб-интерфейс) |
 | POST | `/analyze_text` | Анализ текста конкурента |
 | POST | `/analyze_image` | Анализ изображения конкурента |
-| POST | `/parse_demo` | Парсинг и анализ сайта по URL |
-| GET | `/history` | Получение истории запросов |
-| DELETE | `/history` | Очистка истории запросов |
+| POST | `/parse_demo` | Парсинг сайта по URL (Playwright) и анализ (vision по скриншоту или текстовый fallback) |
+| GET | `/history` | История запросов |
+| DELETE | `/history` | Очистка истории |
 | GET | `/health` | Проверка работоспособности |
-| GET | `/docs` | Swagger UI документация |
-| GET | `/redoc` | ReDoc документация |
+| GET | `/docs` | Swagger UI |
+| GET | `/redoc` | ReDoc |
 
 ---
 
@@ -73,6 +70,7 @@ http://localhost:8000
 ### 1. Анализ текста (`POST /analyze_text`)
 
 **Запрос:**
+
 ```bash
 curl -X POST "http://localhost:8000/analyze_text" \
   -H "Content-Type: application/json" \
@@ -81,7 +79,8 @@ curl -X POST "http://localhost:8000/analyze_text" \
   }'
 ```
 
-**Ответ:**
+**Ответ:** поле `analysis` соответствует модели `CompetitorAnalysis` (см. [ниже](#competitoranalysis)). Для чисто текстового анализа поля `ai_compliance_score` и `ai_training_recommendations` обычно `null` и `[]`.
+
 ```json
 {
   "success": true,
@@ -105,7 +104,9 @@ curl -X POST "http://localhost:8000/analyze_text" \
       "Указать уникальные технологические преимущества",
       "Включить отзывы клиентов"
     ],
-    "summary": "Компания позиционирует себя как надёжного партнёра с опытом, но маркетинговые материалы требуют конкретизации для повышения конверсии."
+    "summary": "Компания позиционирует себя как надёжного партнёра с опытом, но маркетинговые материалы требуют конкретизации для повышения конверсии.",
+    "ai_compliance_score": null,
+    "ai_training_recommendations": []
   },
   "error": null
 }
@@ -114,12 +115,14 @@ curl -X POST "http://localhost:8000/analyze_text" \
 ### 2. Анализ изображения (`POST /analyze_image`)
 
 **Запрос:**
+
 ```bash
 curl -X POST "http://localhost:8000/analyze_image" \
   -F "file=@banner.jpg"
 ```
 
 **Ответ:**
+
 ```json
 {
   "success": true,
@@ -144,16 +147,18 @@ curl -X POST "http://localhost:8000/analyze_image" \
 
 ### 3. Парсинг сайта (`POST /parse_demo`)
 
+Страница загружается в **Chromium** через **Playwright** (со stealth-скриптами), извлекаются title, H1, первый абзац; делается **скриншот viewport**. Анализ: при наличии скриншота — **Vision API** с контекстом URL и текста; иначе — текстовый анализ по извлечённым полям. В ответе `data.analysis` — `CompetitorAnalysis`; для сценария со скриншотом часто заполняются `ai_compliance_score` (0–10) и `ai_training_recommendations`.
+
 **Запрос:**
+
 ```bash
 curl -X POST "http://localhost:8000/parse_demo" \
   -H "Content-Type: application/json" \
-  -d '{
-    "url": "example.com"
-  }'
+  -d '{"url": "https://example.com"}'
 ```
 
-**Ответ:**
+**Ответ (иллюстративный; фактический текст анализа зависит от модели и страницы):**
+
 ```json
 {
   "success": true,
@@ -161,14 +166,35 @@ curl -X POST "http://localhost:8000/parse_demo" \
     "url": "https://example.com",
     "title": "Example Domain",
     "h1": "Example Domain",
-    "first_paragraph": "This domain is for use in illustrative examples in documents.",
+    "first_paragraph": "This domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.",
     "analysis": {
-      "strengths": ["..."],
-      "weaknesses": ["..."],
-      "unique_offers": ["..."],
-      "recommendations": ["..."],
-      "summary": "..."
-    }
+      "strengths": [
+        "Страница быстро загружается и не перегружена контентом",
+        "Заголовок H1 совпадает с темой и сразу объясняет назначение страницы",
+        "Текст явно описывает, что домен можно использовать в примерах без согласования"
+      ],
+      "weaknesses": [
+        "Нет навигации, брендинга и призыва к действию — страница выглядит как заглушка",
+        "Отсутствуют контакты, политика и другие элементы доверия",
+        "Мало материала для оценки маркетинговой подачи или УТП"
+      ],
+      "unique_offers": [
+        "Домен зарезервирован IANA для документации и примеров — это редкий случай «официальной» заглушки"
+      ],
+      "recommendations": [
+        "Если это продуктовый сайт, добавить структуру разделов и ценностное предложение",
+        "Для обучающих материалов — усилить пояснение сценариев использования домена",
+        "Добавить ссылки на справку или политику, если страница станет публичной точкой входа"
+      ],
+      "summary": "Страница example.com — минималистичная служебная заглушка с понятным текстом о допустимом использовании домена в документах; с точки зрения конкурентного анализа это не типичный коммерческий лендинг, а справочный пример.",
+      "ai_compliance_score": 5,
+      "ai_training_recommendations": [
+        "Добавить размеченные блоки (FAQ, how-to) для обучения на структурированных парах вопрос–ответ",
+        "Вынести ключевые формулировки в короткие абзацы с явными заголовками",
+        "Избегать дублирования одной мысли в title, H1 и первом абзаце без новой информации"
+      ]
+    },
+    "error": null
   },
   "error": null
 }
@@ -176,35 +202,78 @@ curl -X POST "http://localhost:8000/parse_demo" \
 
 ### 4. Получение истории (`GET /history`)
 
+Для записей с `request_type: "parse"` в теле может быть **`parse_analysis`** — снимок типа **`ParseHistorySnapshot`** (сохраняется при успешном `parse_demo`, отдельно от «живого» DTO ответа LLM).
+
 **Запрос:**
+
 ```bash
 curl -X GET "http://localhost:8000/history"
 ```
 
-**Ответ:**
+**Ответ (пример с записью parse и текстовой записью):**
+
 ```json
 {
   "items": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "timestamp": "2024-01-15T10:30:00",
+      "request_type": "parse",
+      "request_summary": "URL: https://example.com",
+      "response_summary": "Страница example.com — минималистичная служебная заглушка с понятным текстом о допустимом использовании домена в документах; с точки зрения конкурентного анализа это не типичный коммерческий лендинг, а справочный пример.",
+      "parse_analysis": {
+        "strengths": [
+          "Страница быстро загружается и не перегружена контентом",
+          "Заголовок H1 совпадает с темой и сразу объясняет назначение страницы",
+          "Текст явно описывает, что домен можно использовать в примерах без согласования"
+        ],
+        "weaknesses": [
+          "Нет навигации, брендинга и призыва к действию — страница выглядит как заглушка",
+          "Отсутствуют контакты, политика и другие элементы доверия",
+          "Мало материала для оценки маркетинговой подачи или УТП"
+        ],
+        "unique_offers": [
+          "Домен зарезервирован IANA для документации и примеров — это редкий случай «официальной» заглушки"
+        ],
+        "recommendations": [
+          "Если это продуктовый сайт, добавить структуру разделов и ценностное предложение",
+          "Для обучающих материалов — усилить пояснение сценариев использования домена",
+          "Добавить ссылки на справку или политику, если страница станет публичной точкой входа"
+        ],
+        "summary": "Страница example.com — минималистичная служебная заглушка с понятным текстом о допустимом использовании домена в документах; с точки зрения конкурентного анализа это не типичный коммерческий лендинг, а справочный пример.",
+        "ai_compliance_score": 5,
+        "ai_training_recommendations": [
+          "Добавить размеченные блоки (FAQ, how-to) для обучения на структурированных парах вопрос–ответ",
+          "Вынести ключевые формулировки в короткие абзацы с явными заголовками",
+          "Избегать дублирования одной мысли в title, H1 и первом абзаце без новой информации"
+        ]
+      }
+    },
+    {
+      "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "timestamp": "2024-01-15T09:00:00",
       "request_type": "text",
-      "request_summary": "Наша компания предлагает уникальные решения...",
-      "response_summary": "Компания позиционирует себя как надёжного партнёра..."
+      "request_summary": "Наша компания предлагает уникальные решения для бизнеса. Мы работаем на рынке 10 лет и обслуживаем более 1000 клиентов. Наши преимущества: быстрая доставка, гарантия качества, индивидуальный подход к каждому клиенту.",
+      "response_summary": "Компания позиционирует себя как надёжного партнёра с опытом, но маркетинговые материалы требуют конкретизации для повышения конверсии.",
+      "parse_analysis": null
     }
   ],
-  "total": 1
+  "total": 2
 }
 ```
+
+Записи без сохранённого анализа parse или старые записи могут иметь `parse_analysis: null`.
 
 ### 5. Очистка истории (`DELETE /history`)
 
 **Запрос:**
+
 ```bash
 curl -X DELETE "http://localhost:8000/history"
 ```
 
 **Ответ:**
+
 ```json
 {
   "success": true,
@@ -215,11 +284,13 @@ curl -X DELETE "http://localhost:8000/history"
 ### 6. Проверка здоровья (`GET /health`)
 
 **Запрос:**
+
 ```bash
 curl -X GET "http://localhost:8000/health"
 ```
 
 **Ответ:**
+
 ```json
 {
   "status": "healthy",
@@ -232,95 +303,100 @@ curl -X GET "http://localhost:8000/health"
 
 ## Мультимодальные функции
 
-### Поддержка текста
+### Текст
 
-Приложение анализирует любой текстовый контент конкурентов:
-- Описания продуктов
-- Тексты с лендингов
-- Рекламные объявления
-- Посты в социальных сетях
-- Email рассылки
+Подходит контент с сайтов конкурентов, рекламы, описаний продуктов и т.п.
 
-**Минимальная длина текста:** 10 символов
+**Минимальная длина:** 10 символов (`TextAnalysisRequest`).
 
-### Поддержка изображений
+### Изображения
 
-Поддерживаемые форматы:
-- JPEG/JPG
-- PNG
-- GIF
-- WebP
-
-**Что можно анализировать:**
-- Рекламные баннеры
-- Скриншоты сайтов
-- Фотографии упаковки
-- Креативы для социальных сетей
-- Логотипы и фирменный стиль
-
-**Максимальный размер:** 10MB (рекомендуется до 4MB для быстрой обработки)
+Форматы: JPEG, PNG, GIF, WebP. Разумный размер файла — до нескольких мегабайт (см. ограничения в `backend/main.py` при необходимости).
 
 ### Парсинг веб-страниц
 
-Автоматически извлекаемые элементы:
-- `<title>` — заголовок страницы
-- `<h1>` — главный заголовок
-- Первый значимый `<p>` — первый абзац (минимум 50 символов)
+- **Движок:** Playwright, браузер **Chromium** (после `pip install` нужен `playwright install chromium`).
+- **Stealth:** снижение признаков автоматизации (`playwright-stealth`), настраиваемые User-Agent, locale, timezone и др. через `backend/config.py` / переменные `PARSER_*`.
+- **Извлечение:** title, H1, первый значимый абзац; **скриншот** видимой области страницы для vision-анализа.
+- **Протокол:** при отсутствии схемы в запросе backend может дописать `https://` (см. логику в API).
+- **Таймауты:** `PARSER_TIMEOUT` (операции на странице), `PARSER_NAVIGATION_TIMEOUT` (навигация `goto`) — см. `env.example.txt`.
 
-**Особенности:**
-- Автоматическое добавление протокола `https://`
-- Следование редиректам
-- Таймаут: 10 секунд
-- User-Agent: Mozilla/5.0 (имитация браузера)
+Массовый прогон URL из консоли: каталог `parsedemo/` (скрипт вызывает `POST /parse_demo` для каждого URL).
 
 ---
 
 ## Модели данных
 
 ### TextAnalysisRequest
+
 ```typescript
 {
-  text: string  // Минимум 10 символов
+  text: string  // минимум 10 символов
 }
 ```
 
 ### ParseDemoRequest
+
 ```typescript
 {
-  url: string  // URL сайта для парсинга
+  url: string
 }
 ```
 
 ### CompetitorAnalysis
+
+Структурированный анализ в ответах API (`/analyze_text`, `data.analysis` в `/parse_demo`).
+
 ```typescript
 {
-  strengths: string[]      // Сильные стороны
-  weaknesses: string[]     // Слабые стороны
-  unique_offers: string[]  // Уникальные предложения
-  recommendations: string[] // Рекомендации
-  summary: string          // Общее резюме
+  strengths: string[]
+  weaknesses: string[]
+  unique_offers: string[]
+  recommendations: string[]
+  summary: string
+  ai_compliance_score: number | null   // 0–10; типично для анализа по скриншоту сайта
+  ai_training_recommendations: string[]
+}
+```
+
+### ParseHistorySnapshot
+
+Снимок для **хранения в истории** по операциям parse. Структура сознательно совпадает с полезной нагрузкой анализа, но это **отдельная** модель: изменения в `CompetitorAnalysis` не меняют историю без явного маппинга (`from_competitor_analysis`). В JSON ответа `GET /history` поле по-прежнему называется **`parse_analysis`**.
+
+```typescript
+{
+  strengths: string[]
+  weaknesses: string[]
+  unique_offers: string[]
+  recommendations: string[]
+  summary: string
+  ai_compliance_score: number | null
+  ai_training_recommendations: string[]
 }
 ```
 
 ### ImageAnalysis
+
 ```typescript
 {
-  description: string           // Описание изображения
-  marketing_insights: string[]  // Маркетинговые инсайты
-  visual_style_score: number    // Оценка 0-10
-  visual_style_analysis: string // Анализ стиля
-  recommendations: string[]     // Рекомендации
+  description: string
+  marketing_insights: string[]
+  visual_style_score: number    // 0–10
+  visual_style_analysis: string
+  recommendations: string[]
 }
 ```
 
 ### HistoryItem
+
 ```typescript
 {
-  id: string              // UUID записи
-  timestamp: datetime     // Время запроса
-  request_type: string    // "text" | "image" | "parse"
-  request_summary: string // Краткое описание запроса
-  response_summary: string // Краткое описание ответа
+  id: string
+  timestamp: string             // ISO 8601
+  request_type: "text" | "image" | "parse"
+  request_summary: string
+  response_summary: string
+  parse_analysis: ParseHistorySnapshot | null  // только для parse, если сохранён снимок
 }
 ```
 
@@ -331,8 +407,8 @@ curl -X GET "http://localhost:8000/health"
 | Код | Описание |
 |-----|----------|
 | 200 | Успешный запрос |
-| 400 | Некорректный запрос (неверный формат, короткий текст) |
-| 422 | Ошибка валидации данных |
+| 400 | Некорректный запрос |
+| 422 | Ошибка валидации (Pydantic) |
 | 500 | Внутренняя ошибка сервера |
 
 ---
@@ -343,33 +419,32 @@ curl -X GET "http://localhost:8000/health"
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `PROXY_API_KEY` | API ключ [ProxyAPI](https://proxyapi.ru/) | - |
+| `OPENAI_KEY` | Ключ нативного OpenAI (`api.openai.com`). Если задан, используется вместо ProxyAPI. | — |
+| `PROXY_API_KEY` | Ключ [ProxyAPI](https://proxyapi.ru/) (OpenAI-совместимый endpoint) | — |
 | `OPENAI_MODEL` | Модель для текста | `gpt-4o-mini` |
-| `OPENAI_VISION_MODEL` | Модель для изображений | `gpt-4o-mini` |
+| `OPENAI_VISION_MODEL` | Модель для vision | `gpt-4o-mini` |
 | `API_HOST` | Хост сервера | `0.0.0.0` |
 | `API_PORT` | Порт сервера | `8000` |
+| `PARSER_TIMEOUT` | Таймаут операций на странице (сек.) | `30` |
+| `PARSER_NAVIGATION_TIMEOUT` | Таймаут `page.goto` (сек.) | `60` |
+| `PARSER_HEADLESS` | Headless Chromium | `true` |
 
-### ProxyAPI
+Полный список опций парсера (User-Agent, locale, timezone и т.д.) — в `env.example.txt` и `backend/config.py`.
 
-Проект использует [ProxyAPI](https://proxyapi.ru/) — OpenAI-совместимый API для России.
-- Без VPN и блокировок
-- Оплата в рублях
-- [Документация](https://proxyapi.ru/docs/openai-text-generation)
+### OpenAI и ProxyAPI
 
-### Настройки истории
+- При наличии **`OPENAI_KEY`** запросы идут в официальный API OpenAI.
+- Иначе используется **`PROXY_API_KEY`** и базовый URL ProxyAPI из конфигурации.
 
-- Максимум записей: **10**
-- Файл хранения: `history.json`
-- Формат: JSON с UTF-8 кодировкой
+### История
+
+- Максимум записей настраивается (`max_history_items` в коде, по умолчанию **10**).
+- Файл: **`history.json`**, кодировка UTF-8.
 
 ---
 
 ## Безопасность
 
-⚠️ **Важно:**
-- Не храните API ключи в коде
-- Используйте `.env` файл для секретов
-- Добавьте `.env` в `.gitignore`
-- В продакшене используйте HTTPS
-- Настройте CORS для конкретных доменов
-
+- Не храните API-ключи в коде; используйте `.env`.
+- Добавьте `.env` в `.gitignore`.
+- В продакшене используйте HTTPS и ограничьте CORS под ваши домены.

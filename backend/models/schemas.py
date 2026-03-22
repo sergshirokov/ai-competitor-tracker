@@ -58,6 +58,37 @@ class ParsedContent(BaseModel):
     error: Optional[str] = None
 
 
+class ParseHistorySnapshot(BaseModel):
+    """
+    Снимок анализа конкурента для хранения в истории (parse).
+    Отделён от CompetitorAnalysis: изменения в API/LLM-схеме не тянут историю автоматически —
+    обновляйте только from_competitor_analysis и при необходимости миграции JSON.
+    """
+    strengths: List[str] = Field(default_factory=list)
+    weaknesses: List[str] = Field(default_factory=list)
+    unique_offers: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    summary: str = ""
+    ai_compliance_score: Optional[int] = Field(
+        None,
+        ge=0,
+        le=10,
+    )
+    ai_training_recommendations: List[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_competitor_analysis(cls, c: CompetitorAnalysis) -> "ParseHistorySnapshot":
+        return cls(
+            strengths=list(c.strengths),
+            weaknesses=list(c.weaknesses),
+            unique_offers=list(c.unique_offers),
+            recommendations=list(c.recommendations),
+            summary=c.summary,
+            ai_compliance_score=c.ai_compliance_score,
+            ai_training_recommendations=list(c.ai_training_recommendations),
+        )
+
+
 class TextAnalysisResponse(BaseModel):
     """Ответ на анализ текста"""
     success: bool
@@ -88,6 +119,10 @@ class HistoryItem(BaseModel):
     request_type: str  # "text", "image", "parse"
     request_summary: str
     response_summary: str
+    parse_analysis: Optional[ParseHistorySnapshot] = Field(
+        default=None,
+        description="Снимок анализа parse (ParseHistorySnapshot), не DTO ответа LLM",
+    )
 
 
 class HistoryResponse(BaseModel):

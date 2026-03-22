@@ -2,6 +2,13 @@
 Главный модуль FastAPI приложения
 Мониторинг конкурентов - MVP ассистент
 """
+import asyncio
+import sys
+
+# Playwright на Windows поднимает subprocess к движку; без Proactor — NotImplementedError.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import base64
 import time
 import logging
@@ -19,7 +26,8 @@ from backend.models.schemas import (
     ParseDemoRequest,
     ParseDemoResponse,
     ParsedContent,
-    HistoryResponse
+    ParseHistorySnapshot,
+    HistoryResponse,
 )
 from backend.services.openai_service import openai_service
 from backend.services.parser_service import parser_service
@@ -288,7 +296,8 @@ async def parse_demo(request: ParseDemoRequest):
         history_service.add_entry(
             request_type="parse",
             request_summary=f"URL: {request.url}",
-            response_summary=analysis.summary[:100] if analysis.summary else f"Title: {title or 'N/A'}"
+            response_summary=analysis.summary[:100] if analysis.summary else f"Title: {title or 'N/A'}",
+            parse_analysis=ParseHistorySnapshot.from_competitor_analysis(analysis),
         )
         
         total_elapsed = time.time() - total_start

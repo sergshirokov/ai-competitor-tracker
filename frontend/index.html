@@ -227,6 +227,26 @@
         </div>
     </div>
 
+    <!-- История parse: детали сохранённого анализа -->
+    <div id="history-parse-modal" class="history-parse-modal" aria-hidden="true">
+        <div class="history-parse-modal__backdrop" id="history-parse-modal-backdrop"></div>
+        <div class="history-parse-modal__panel" role="dialog" aria-modal="true" aria-labelledby="history-parse-modal-title">
+            <div class="history-parse-modal__header">
+                <div>
+                    <h3 id="history-parse-modal-title">Парсинг сайта</h3>
+                    <p class="history-parse-modal__sub" id="history-parse-modal-sub"></p>
+                </div>
+                <button type="button" class="btn btn-icon" id="history-parse-modal-close" aria-label="Закрыть">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="history-parse-modal__body" id="history-parse-modal-body"></div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@
 import os
 import logging
 import sys
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -30,8 +31,7 @@ def setup_logging():
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("selenium").setLevel(logging.WARNING)
-    logging.getLogger("WDM").setLevel(logging.WARNING)
+    logging.getLogger("playwright").setLevel(logging.WARNING)
     
     return logging.getLogger("competitor_monitor")
 
@@ -58,9 +58,21 @@ class Settings(BaseSettings):
     history_file: str = "history.json"
     max_history_items: int = 10
     
-    # Парсер
-    parser_timeout: int = 10
-    parser_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    # Парсер (Playwright + stealth; после установки: playwright install chromium)
+    # parser_timeout — ожидание body, локаторов и т.д.; первый запуск Chromium + медленный TLS
+    # часто съедают секунды до goto, поэтому для навигации ниже отдельный лимит.
+    parser_timeout: int = 30
+    parser_navigation_timeout: int = 60
+    parser_headless: bool = Field(default=True, description="Headless Chromium (False — меньше отпечаток headless, но нужен дисплей)")
+    parser_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
+    parser_locale: str = "en-US"
+    parser_timezone: str = "Europe/Moscow"
+    parser_accept_language: str = "en-US,en;q=0.9"
+    parser_navigator_languages: str = "en-US,en"
+    parser_platform: str = "Win32"
     
     class Config:
         env_file = ".env"

@@ -7,7 +7,9 @@
 const state = {
     currentTab: 'text',
     selectedImage: null,
-    isLoading: false
+    isLoading: false,
+    /** Кэш последней отрисованной истории (для клика по parse) */
+    historyItemsCache: []
 };
 
 // === DOM Elements ===
@@ -42,7 +44,14 @@ const elements = {
     closeResultsBtn: document.getElementById('close-results'),
     
     // Loading
-    loadingOverlay: document.getElementById('loading-overlay')
+    loadingOverlay: document.getElementById('loading-overlay'),
+    
+    // History parse modal
+    historyParseModal: document.getElementById('history-parse-modal'),
+    historyParseModalBackdrop: document.getElementById('history-parse-modal-backdrop'),
+    historyParseModalBody: document.getElementById('history-parse-modal-body'),
+    historyParseModalSub: document.getElementById('history-parse-modal-sub'),
+    historyParseModalClose: document.getElementById('history-parse-modal-close')
 };
 
 // === API Functions ===
@@ -284,7 +293,26 @@ const ui = {
         }
     },
     
+    openParseHistoryModal(item) {
+        if (!item || !item.parse_analysis) return;
+        elements.historyParseModalSub.textContent = item.request_summary || '';
+        elements.historyParseModalBody.innerHTML = this.renderTextAnalysis(item.parse_analysis);
+        elements.historyParseModal.classList.add('history-parse-modal--open');
+        elements.historyParseModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('history-parse-modal-open');
+        elements.historyParseModalClose.focus();
+    },
+    
+    closeParseHistoryModal() {
+        elements.historyParseModal.classList.remove('history-parse-modal--open');
+        elements.historyParseModal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('history-parse-modal-open');
+        elements.historyParseModalBody.innerHTML = '';
+    },
+    
     renderHistory(items) {
+        state.historyItemsCache = items || [];
+        
         if (!items || items.length === 0) {
             elements.historyList.innerHTML = `
                 <div class="history-empty">
@@ -310,7 +338,7 @@ const ui = {
             parse: 'Парсинг сайта'
         };
         
-        elements.historyList.innerHTML = items.map(item => {
+        elements.historyList.innerHTML = items.map((item, index) => {
             const date = new Date(item.timestamp);
             const timeStr = date.toLocaleString('ru-RU', {
                 day: '2-digit',
@@ -319,8 +347,24 @@ const ui = {
                 minute: '2-digit'
             });
             
+            const hasParseDetail = item.request_type === 'parse' && item.parse_analysis;
+            const rowClasses = [
+                'history-item',
+                hasParseDetail ? 'history-item--parse-clickable' : ''
+            ].filter(Boolean).join(' ');
+            
+            const hint = hasParseDetail
+                ? '<div class="history-parse-hint">Нажмите для подробностей анализа</div>'
+                : (item.request_type === 'parse'
+                    ? '<div class="history-parse-hint history-parse-hint--muted">Сохранённый анализ недоступен</div>'
+                    : '');
+            
+            const attrs = hasParseDetail
+                ? ` data-history-index="${index}" role="button" tabindex="0" title="Открыть сохранённый анализ"`
+                : '';
+            
             return `
-                <div class="history-item">
+                <div class="${rowClasses}"${attrs}>
                     <div class="history-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             ${icons[item.request_type] || icons.text}
@@ -329,6 +373,7 @@ const ui = {
                     <div class="history-content">
                         <div class="history-type">${typeLabels[item.request_type] || item.request_type}</div>
                         <div class="history-summary">${item.request_summary}</div>
+                        ${hint}
                     </div>
                     <div class="history-time">${timeStr}</div>
                 </div>
@@ -498,6 +543,35 @@ const handlers = {
         }
     },
     
+    handleHistoryListClick(e) {
+        const row = e.target.closest('.history-item--parse-clickable');
+        if (!row) return;
+        const idx = parseInt(row.dataset.historyIndex, 10);
+        if (Number.isNaN(idx)) return;
+        const item = state.historyItemsCache[idx];
+        if (item && item.parse_analysis) {
+            ui.openParseHistoryModal(item);
+        }
+    },
+    
+    handleHistoryListKeydown(e) {
+        const row = e.target.closest('.history-item--parse-clickable');
+        if (!row || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        const idx = parseInt(row.dataset.historyIndex, 10);
+        if (Number.isNaN(idx)) return;
+        const item = state.historyItemsCache[idx];
+        if (item && item.parse_analysis) {
+            ui.openParseHistoryModal(item);
+        }
+    },
+    
+    handleHistoryParseModalEscape(e) {
+        if (e.key === 'Escape' && elements.historyParseModal.classList.contains('history-parse-modal--open')) {
+            ui.closeParseHistoryModal();
+        }
+    },
+    
     // Results
     handleCloseResults() {
         ui.hideResults();
@@ -531,6 +605,11 @@ function init() {
     
     // History
     elements.clearHistoryBtn.addEventListener('click', handlers.handleClearHistory.bind(handlers));
+    elements.historyList.addEventListener('click', handlers.handleHistoryListClick.bind(handlers));
+    elements.historyList.addEventListener('keydown', handlers.handleHistoryListKeydown.bind(handlers));
+    elements.historyParseModalClose.addEventListener('click', () => ui.closeParseHistoryModal());
+    elements.historyParseModalBackdrop.addEventListener('click', () => ui.closeParseHistoryModal());
+    document.addEventListener('keydown', handlers.handleHistoryParseModalEscape.bind(handlers));
     
     // Results
     elements.closeResultsBtn.addEventListener('click', handlers.handleCloseResults.bind(handlers));

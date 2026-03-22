@@ -699,6 +699,105 @@ input[type="text"]::placeholder {
     white-space: nowrap;
 }
 
+.history-item--parse-clickable {
+    cursor: pointer;
+}
+
+.history-item--parse-clickable:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+}
+
+.history-item--parse-clickable:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.history-parse-hint {
+    font-size: 0.75rem;
+    color: var(--accent-secondary);
+    margin-top: 6px;
+}
+
+.history-parse-hint--muted {
+    color: var(--text-muted);
+}
+
+/* Модалка: сохранённый parse_analysis из истории */
+.history-parse-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.history-parse-modal--open {
+    display: flex;
+}
+
+.history-parse-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 15, 28, 0.78);
+    backdrop-filter: blur(4px);
+}
+
+.history-parse-modal__panel {
+    position: relative;
+    z-index: 1;
+    width: min(640px, 100%);
+    max-height: min(85vh, 900px);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.history-parse-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 20px 14px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.history-parse-modal__header h3 {
+    margin: 0 0 6px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.history-parse-modal__sub {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.history-parse-modal__body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.history-parse-modal__body .result-block:first-child {
+    margin-top: 0;
+}
+
+body.history-parse-modal-open {
+    overflow: hidden;
+}
+
 /* === Loading Overlay === */
 .loading-overlay {
     position: fixed;
